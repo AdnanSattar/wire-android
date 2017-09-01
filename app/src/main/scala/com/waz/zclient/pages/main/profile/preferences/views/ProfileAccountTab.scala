@@ -23,7 +23,7 @@ import android.view.{View, ViewGroup}
 import android.widget.FrameLayout.LayoutParams
 import android.widget.{FrameLayout, ImageView}
 import com.waz.api.impl.AccentColor
-import com.waz.model.{AccountId, TeamData, UserData}
+import com.waz.model.{AccountId, AssetId, TeamData, UserData}
 import com.waz.service.ZMessaging
 import com.waz.utils.NameParts
 import com.waz.utils.events.Signal
@@ -80,21 +80,34 @@ class ProfileAccountTab(val context: Context, val attrs: AttributeSet, val defSt
     count  <- userAccountsController.unreadCount.map(_.get(accountId))
   } yield count.getOrElse(0)
 
-  (for {
-    s   <- selected
-    tOu <- teamAndUser
-  } yield (tOu, s)).onUi {
-    case ((user, None), s) =>
-      unreadIndicator.setAccentColor(AccentColor(user.accent).getColor)
-      drawable.setBorderColor(AccentColor(user.accent).getColor)
-      drawable.setInfo(NameParts.maybeInitial(user.displayName).getOrElse(""), TeamIconDrawable.UserCorners, s)
-      drawable.assetId ! user.picture
-    case ((user, Some(team)), s) =>
-      unreadIndicator.setAccentColor(AccentColor(user.accent).getColor)
-      drawable.setBorderColor(AccentColor(user.accent).getColor)
-      drawable.setInfo(NameParts.maybeInitial(team.name).getOrElse(""), TeamIconDrawable.TeamCorners, s)
+  private val accentColor = teamAndUser.map(tau => AccentColor(tau._1.accent).getColor())
+
+  private val picture = teamAndUser.map{
+    case (user, Some(team)) =>
       // TODO use team icon when ready
-      drawable.assetId ! None
+      Option.empty[AssetId]
+    case (user, _) =>
+      user.picture
+  }
+
+  private val initials = teamAndUser.map{
+    case (user, Some(team)) =>
+      NameParts.maybeInitial(team.name).getOrElse("")
+    case (user, _) =>
+      NameParts.maybeInitial(user.displayName).getOrElse("")
+  }
+
+  private val drawableCorners = teamAndUser.map(_._2.fold(TeamIconDrawable.UserCorners)(_ => TeamIconDrawable.TeamCorners))
+
+  picture.onUi { drawable.assetId ! _ }
+
+  accentColor.onUi { color =>
+    unreadIndicator.setAccentColor(color)
+    drawable.setBorderColor(color)
+  }
+
+  Signal(initials, drawableCorners, selected).onUi {
+    case (i, c, s) => drawable.setInfo(i, c, s)
   }
 
   Signal(unreadCount, selected).onUi {
